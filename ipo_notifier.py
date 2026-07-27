@@ -99,7 +99,7 @@ def check_ipos():
                 # Dynamic Logging to see exact data points in GitHub terminal
                 print(f"Matched Data -> Name: {ipo_name_raw} | Sub: {subscription_multiple}x | GMP: {matched_gmp_value}%")
                 
-                if subscription_multiple >= 1.0 and matched_gmp_value >= 15.0:
+                if subscription_multiple >= 1.0 and matched_gmp_value >= 1.0:
                     message = (
                         f"🚨 *Alpha IPO Trade Triggered!* 🚨\n\n"
                         f"🏢 *Company:* {ipo_name_raw}\n"
