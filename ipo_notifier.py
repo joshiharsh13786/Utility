@@ -20,7 +20,6 @@ def send_telegram_message(message):
         print(f"Network error pushing text alert: {e}")
 
 def get_live_gmp():
-    """Extracts explicit percentage returns calculated via live Cap Prices."""
     gmp_map = {}
     url = "https://investorgain.com"
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
@@ -35,23 +34,20 @@ def get_live_gmp():
         for row in table.find_all('tr')[1:]:
             cols = [td.text.strip() for td in row.find_all('td')]
             if len(cols) >= 7:
-                # 1. Standardize string structures safely
                 raw_name = cols[0].split("IPO")[0].strip().lower()
-                clean_name = re.sub(r'[^a-z0-9]', '', raw_name)
+                # Advanced Clean: removes common extensions
+                clean_name = re.sub(r'(ltd|limited|\s+)', '', raw_name)
+                clean_name = re.sub(r'[^a-z0-9]', '', clean_name)
                 
                 try:
-                    # 2. Extract upper price band cap value
-                    price_str = cols[1].replace('₹', '').split('-')[-1].strip()
+                    price_str = cols[4].replace('₹', '').split('-')[-1].strip()
                     cap_price = float(price_str) if price_str else 1.0
                     
-                    # 3. Read raw cash market currency premium
-                    raw_gmp_cash = cols[2].replace('₹', '').replace('▼', '').replace('▲', '').replace('─', '').strip()
+                    raw_gmp_cash = cols[1].replace('₹', '').replace('▼', '').replace('▲', '').replace('─', '').strip()
                     gmp_cash = float(raw_gmp_cash) if raw_gmp_cash else 0.0
                     
-                    # 4. Math compute true premium ratio yield %
                     calculated_percentage = (gmp_cash / cap_price) * 100
                     gmp_map[clean_name] = round(calculated_percentage, 2)
-                    print(f"Parsed Market: {clean_name} -> Price: {cap_price}, Premium Cash: ₹{gmp_cash} ({round(calculated_percentage, 2)}%)")
                 except (ValueError, IndexError):
                     continue
     except Exception as e:
@@ -75,7 +71,6 @@ def check_ipos():
         return
 
     live_gmp_database = get_live_gmp()
-    # Converts format matching '27-Jul-2026'
     today_stamp = datetime.today().strftime('%d-%b-%Y') 
     alert_triggered = False
     
@@ -84,28 +79,27 @@ def check_ipos():
         if len(cols) < 6:
             continue
             
-        # Clean company text arrays explicitly
         ipo_name_raw = cols[0].split("IPO")[0].strip()
-        search_name = re.sub(r'[^a-z0-9]', '', ipo_name_raw.lower())
+        search_name = re.sub(r'(ltd|limited|\s+)', '', ipo_name_raw.lower())
+        search_name = re.sub(r'[^a-z0-9]', '', search_name)
         
-        close_date = cols[2]
-        sub_text = cols[5].lower().replace('x', '').strip()
+        close_date = cols[1]
+        sub_text = cols[2].lower().replace('x', '').strip()
         
         if today_stamp in close_date:
             try:
                 subscription_multiple = float(sub_text)
                 matched_gmp_value = 0.0
                 
-                # Loose structural name matrix matching loop
                 for key_market_name, premium_percentage in live_gmp_database.items():
                     if key_market_name in search_name or search_name in key_market_name:
                         matched_gmp_value = premium_percentage
                         break
                 
-                print(f"Checking: {ipo_name_raw} | Sub: {subscription_multiple}x | Matched calculated GMP: {matched_gmp_value}%")
+                # Dynamic Logging to see exact data points in GitHub terminal
+                print(f"Matched Data -> Name: {ipo_name_raw} | Sub: {subscription_multiple}x | GMP: {matched_gmp_value}%")
                 
-                # CORE THRESHOLD RULE: Subscriptions > 5X AND Yield Return > 12%
-                if subscription_multiple >= 5.0 and matched_gmp_value >= 12.0:
+                if subscription_multiple >= 1.0 and matched_gmp_value >= 15.0:
                     message = (
                         f"🚨 *Alpha IPO Trade Triggered!* 🚨\n\n"
                         f"🏢 *Company:* {ipo_name_raw}\n"
@@ -115,6 +109,8 @@ def check_ipos():
                     )
                     send_telegram_message(message)
                     alert_triggered = True
+                else:
+                    print(f"❌ Skipped {ipo_name_raw}: Failed criteria conditions.")
             except ValueError:
                 continue
 
