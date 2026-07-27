@@ -1,0 +1,28 @@
+name: Daily IPO Scanner
+
+on:
+  schedule:
+    - cron: '30 7 * * *' # Runs daily at 7:30 AM UTC (1:00 PM IST)
+  workflow_dispatch: # Allows you to run it manually anytime
+
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: |
+          pip install requests beautifulsoup4
+
+      - name: Run Scan
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python ipo_notifier.py
