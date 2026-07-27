@@ -7,12 +7,12 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 def send_telegram_message(message):
-    url = f"https://telegram.org{TELEGRAM_TOKEN}/sendMessage"
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}
-    try:
-        requests.post(url, json=payload)
-    except Exception as e:
-        print(f"Error sending text: {e}")
+    
+    response = requests.post(url, json=payload)
+    print(f"Telegram API Status Code: {response.status_code}")
+    print(f"Telegram API Response: {response.text}")
 
 def check_ipos():
     url = "https://chittorgarh.com"
