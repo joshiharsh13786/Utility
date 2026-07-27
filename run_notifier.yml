@@ -2,7 +2,7 @@ name: Daily IPO Scanner
 
 on:
   schedule:
-    - cron: '30 10 * * *' # Runs daily at 10:30 AM UTC (4:00 PM IST)
+    - cron: '30 7 * * *' # Runs daily at 7:30 AM UTC (1:00 PM IST)
   workflow_dispatch: # Allows you to run it manually anytime
 
 jobs:
