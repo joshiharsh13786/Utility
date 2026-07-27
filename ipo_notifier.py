@@ -20,9 +20,12 @@ def send_telegram_message(message):
         print(f"Network error pushing text alert: {e}")
 
 def check_ipos():
-    url = "https://investorgain.com"
+    url = "https://www.investorgain.com/report/live-ipo-gmp/331/ipo/"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Connection": "keep-alive"
     }
     
     try:
@@ -35,21 +38,33 @@ def check_ipos():
     table = soup.find('table')
     if not table:
         print("🚨 Error: Unable to locate the tabular grid structure on InvestorGain.")
+        # Fallback to direct page text string parsing if Cloudflare strips table tags
+        parse_via_text_fallback(soup.get_text())
         return
 
     rows = table.find_all('tr')
-    today_str = datetime.today().strftime('%d-%b')  # Generates '27-Jul'
+    print(f"Located grid layout. Processing {len(rows) - 1} raw items...")
+
+    today_str = datetime.today().strftime('%d-%b')  # Generates current date format e.g. '27-Jul'
     alert_triggered = False
 
-    for row in rows[1:]:
+    for index, row in enumerate(rows[1:], start=1):
         cols = [td.text.strip() for td in row.find_all('td')]
-        if len(cols) < 7:
+        
+        # VISUAL DEBUG ANCHOR: See exactly what array length is extracted
+        print(f"--- Row #{index} Row-Length Checked: {len(cols)} columns found ---")
+        if len(cols) == 0:
+            continue
+        print(f"Raw Row Content Elements: {cols[:4]}") # Prints first few fields for debugging
+
+        if len(cols) < 5: 
+            # Relaxed constraint to capture tables that pass responsive layouts
             continue
 
-        raw_name = cols[0].replace('IPO', '').replace('Ltd', '').strip()
-        gmp_text = cols[1]  
-        sub_text = cols[2].lower().replace('x', '').strip()
-        close_date = cols[6]  
+        raw_name = cols[0].replace('IPO', '').replace('Ltd', '').replace('.', '').strip()
+        gmp_text = cols[1] if len(cols) > 1 else ""
+        sub_text = cols[2].lower().replace('x', '').strip() if len(cols) > 2 else "0"
+        close_date = cols[3] if len(cols) > 3 else ""
 
         try:
             subscription = float(sub_text) if sub_text and sub_text != '-' else 0.0
@@ -64,15 +79,14 @@ def check_ipos():
             except ValueError:
                 gmp_pct = 0.0
 
-        # GLOBAL DIAGNOSTIC LOG (Prints every asset found)
-        print(f"📊 Tracking Asset: {raw_name} | Close Date: {close_date} | Sub: {subscription}x | GMP: {gmp_pct}%")
+        print(f"📊 Extracted -> Name: {raw_name} | Close: {close_date} | Sub: {subscription}x | GMP: {gmp_pct}%")
 
-        # CRITERIA STEP 1: Verify if the deadline matches today
+        # CRITERIA STEP 1: Deadline match check
         if today_str.lower() in close_date.lower():
-            # CRITERIA STEP 2 & 3: Evaluate subscription volumes and GMP thresholds
+            # CRITERIA STEP 2 & 3: Match alpha criteria limits
             if gmp_pct >= 12.0 and subscription >= 5.0:
                 message = (
-                    f"🚨 *InvestorGain Alpha Trigger!* 🚨\n\n"
+                    f"🚨 *InvestorGain Production Trigger!* 🚨\n\n"
                     f"🏢 *Company Name:* {raw_name}\n"
                     f"📅 *Deadline:* TODAY ({close_date})\n"
                     f"🔥 *Subscription Status:* {subscription}x (Target: >5x)\n"
@@ -81,12 +95,22 @@ def check_ipos():
                 send_telegram_message(message)
                 alert_triggered = True
             else:
-                print(f"   ↳ ❌ Dropped: Below target metrics (Needed: >5x Sub, >12% GMP). Current Sub: {subscription}x")
+                print(f"   ↳ ❌ Dropped: Under alpha targets. Present metrics: {subscription}x Sub, {gmp_pct}% GMP.")
         else:
-            print(f"   ↳ ⏳ Skipped: Final application deadline ({close_date}) is not today.")
+            print(f"   ↳ ⏳ Skipped: Target end date ({close_date}) is not today ({today_str}).")
 
-    if not alert_triggered:
-        print("🏁 Scan Completed. No running IPOs satisfied all filtering constraints today.")
+    if not alert_triggered and len(rows) > 1:
+        print("🏁 Table loop complete. No active items matched your exact metric threshold settings.")
+
+def parse_via_text_fallback(raw_html_text):
+    """Fallback block tracking explicitly engineered to clean unstructured text arrays."""
+    print("Executing fallback pattern analyzer...")
+    today_str = datetime.today().strftime('%d-%b')
+    # Scans text block for patterns like: "Indo MIM IPO GMP +15% Close 27-Jul Sub 58.2x"
+    matches = re.findall(r'([A-Za-z0-9\s]+?)\s*IPO.*?GMP.*?([\d\.]+)\%.*?Close.*?([\d\-A-Za-z]+).*?Sub.*?([\d\.]+)x', raw_html_text, re.DOTALL | re.IGNORECASE)
+    
+    for item in matches:
+        print(f"Fallback Item Discovered: {item}")
 
 if __name__ == "__main__":
     check_ipos()
