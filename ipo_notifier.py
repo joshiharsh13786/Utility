@@ -75,4 +75,6 @@ def check_ipos():
         print("No IPOs matched your filters today.")
 
 if __name__ == "__main__":
-    check_ipos()
+    send_telegram_message("🧪 *IPO Notifier Connection Test Success!* \nYour automation setup is complete and fully working.")
+    # check_ipos()
+
