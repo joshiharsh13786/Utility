@@ -20,9 +20,11 @@ def send_telegram_message(message):
         print(f"Network error pushing text alert: {e}")
 
 def check_ipos():
-    # URL tracking all active criteria on InvestorGain directly
+    # Direct tabular source containing all fields natively on InvestorGain
     url = "https://www.investorgain.com/report/live-ipo-gmp/331/ipo/"
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
     
     try:
         response = requests.get(url, headers=headers, timeout=15)
@@ -31,50 +33,73 @@ def check_ipos():
         print(f"InvestorGain connection failed: {e}")
         return
 
-    # Targets the structured rows/cards representing individual IPOs
-    ipo_elements = soup.find_all('div', class_='row border-bottom py-2') or soup.find_all('tr')[1:]
-    
-    if not ipo_elements:
-        # Fallback to general text container parsing if class tags dynamic shift
-        print("InvestorGain data container structure changed. Attempting layout fallback parsing.")
-        
-    today_str = datetime.today().strftime('%d-%b') # Formats to match '24-Jul' or '27-Jul'
+    table = soup.find('table')
+    if not table:
+        print("🚨 Error: Unable to locate the tabular grid structure on InvestorGain.")
+        return
+
+    rows = table.find_all('tr')
+    print(f"Successfully located grid. Processing {len(rows) - 1} IPO records...")
+
+    today_str = datetime.today().strftime('%d-%b')  # Matches format: '27-Jul'
     alert_triggered = False
 
-    # Mock Data extraction loop tailored directly to InvestorGain text signatures
-    text_data = soup.get_text()
-    
-    # Locate blocks of text containing data chunks
-    # Parsing using regex handles both card and desktop data modes flawlessly
-    matches = re.findall(r'([A-Za-z0-9\s\.\-\(\)]+)(?:IPO|Ltd).*?GMP\s*:\s*([\+\-₹0-9\.\s]+)\s*\(([\+\-0-9\.]+)%\).*?Period\s*:\s*[0-9\-A-Za-z]+\s*-\s*([0-9\-A-Za-z]+).*?Subscription\s*:\s*([0-9\.]+)x', text_data, re.DOTALL | re.IGNORECASE)
+    for row in rows[1:]:  # Skip header row
+        cols = [td.text.strip() for td in row.find_all('td')]
+        if len(cols) < 7:
+            continue
 
-    for item in matches:
-        ipo_name = item[0].strip()
-        gmp_pct = float(item[2].strip())
-        end_date = item[3].strip()
-        subscription = float(item[4].strip())
-        
-        print(f"Processed Grid Asset -> Name: {ipo_name} | Close: {end_date} | Sub: {subscription}x | GMP: {gmp_pct}%")
+        # Column structure extraction mapping based on structural desktop index tracking
+        raw_name = cols[0].replace('IPO', '').replace('Ltd', '').strip()
+        gmp_text = cols[1]  # Contains both cash premium and percentage inside string structure
+        sub_text = cols[2].lower().replace('x', '').strip()
+        close_date = cols[5]  # Contains absolute end application timeline tracking data
 
-        # CRITERIA BLOCK 1: Check if final closing application day is TODAY
-        if today_str.lower() in end_date.lower():
+        # 1. Parse Subscription Volume accurately
+        try:
+            subscription = float(sub_text) if sub_text and sub_text != '-' else 0.0
+        except ValueError:
+            subscription = 0.0
+
+        # 2. Extract cleanly nested percentage values from string maps using regular expressions
+        # Captures values out of patterns like "+₹168 (+44.02%)"
+        gmp_pct = 0.0
+        pct_match = re.search(r'\(([\+\-0-9\.]+)%\)', gmp_text)
+        if pct_match:
+            try:
+                gmp_pct = float(pct_match.group(1))
+            except ValueError:
+                gmp_pct = 0.0
+        else:
+            # Secondary raw string float converter backup fallback
+            clean_gmp_text = gmp_text.replace('%', '').replace('+', '').strip()
+            try:
+                gmp_pct = float(clean_gmp_text) if clean_gmp_text and clean_gmp_text != '-' else 0.0
+            except ValueError:
+                gmp_pct = 0.0
+
+        # Diagnostic log printouts to monitor real-time compilation paths inside GitHub Workflow
+        print(f"📊 Evaluated Asset: {raw_name} | Close Date: {close_date} | Sub: {subscription}x | GMP: {gmp_pct}%")
+
+        # CRITERIA STEP 1: Verify if deadline matching rule triggers absolute end date TODAY
+        if today_str.lower() in close_date.lower():
             
-            # CRITERIA BLOCK 2 & 3: GMP > 12% and Subscription >= 5x
+            # CRITERIA STEP 2 & 3: Evaluate numeric volume limits matching threshold bounds
             if gmp_pct >= 12.0 and subscription >= 5.0:
                 message = (
-                    f"🚨 *InvestorGain High-Alpha Alert!* 🚨\n\n"
-                    f"🏢 *Company Name:* {ipo_name}\n"
-                    f"📅 *Closing Target:* TODAY ({end_date})\n"
+                    f"🚨 *InvestorGain Alpha Trigger!* 🚨\n\n"
+                    f"🏢 *Company Name:* {raw_name}\n"
+                    f"📅 *Deadline:* TODAY ({close_date})\n"
                     f"🔥 *Subscription Status:* {subscription}x (Target: >5x)\n"
                     f"📈 *Live Scraped GMP:* {gmp_pct}% (Target: >12%)\n"
                 )
                 send_telegram_message(message)
                 alert_triggered = True
             else:
-                print(f"❌ Skipped {ipo_name}: Failed target volume or premium rules.")
+                print(f"   ↳ ❌ Dropped: Below target metrics (Needed: >5x Sub, >12% GMP).")
 
     if not alert_triggered:
-        print("No running assets reached criteria boundaries inside today's cycle profile.")
+        print("🏁 Scan Completed. No running IPOs satisfied all filtering constraints today.")
 
 if __name__ == "__main__":
     check_ipos()
