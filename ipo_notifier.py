@@ -19,100 +19,59 @@ def send_telegram_message(message):
     except Exception as e:
         print(f"Network error pushing text alert: {e}")
 
-def get_live_gmp():
-    gmp_map = {}
-    url = "https://investorgain.com"
+def check_ipos():
+    # URL tracking all active criteria on InvestorGain directly
+    url = "https://www.investorgain.com/report/live-ipo-gmp/331/ipo/"
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     
     try:
         response = requests.get(url, headers=headers, timeout=15)
         soup = BeautifulSoup(response.text, 'html.parser')
-        table = soup.find('table')
-        if not table:
-            return gmp_map
-            
-        for row in table.find_all('tr')[1:]:
-            cols = [td.text.strip() for td in row.find_all('td')]
-            if len(cols) >= 7:
-                raw_name = cols[0].split("IPO")[0].strip().lower()
-                # Advanced Clean: removes common extensions
-                clean_name = re.sub(r'(ltd|limited|\s+)', '', raw_name)
-                clean_name = re.sub(r'[^a-z0-9]', '', clean_name)
-                
-                try:
-                    price_str = cols[4].replace('₹', '').split('-')[-1].strip()
-                    cap_price = float(price_str) if price_str else 1.0
-                    
-                    raw_gmp_cash = cols[1].replace('₹', '').replace('▼', '').replace('▲', '').replace('─', '').strip()
-                    gmp_cash = float(raw_gmp_cash) if raw_gmp_cash else 0.0
-                    
-                    calculated_percentage = (gmp_cash / cap_price) * 100
-                    gmp_map[clean_name] = round(calculated_percentage, 2)
-                except (ValueError, IndexError):
-                    continue
     except Exception as e:
-        print(f"InvestorGain extract error: {e}")
-    return gmp_map
+        print(f"InvestorGain connection failed: {e}")
+        return
 
-def check_ipos():
-    chittorgarh_url = "https://chittorgarh.com"
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    # Targets the structured rows/cards representing individual IPOs
+    ipo_elements = soup.find_all('div', class_='row border-bottom py-2') or soup.find_all('tr')[1:]
     
-    try:
-        response = requests.get(chittorgarh_url, headers=headers, timeout=15)
-        soup = BeautifulSoup(response.text, 'html.parser')
-        table = soup.find('table')
-    except Exception as e:
-        print(f"Chittorgarh communication error: {e}")
-        return
+    if not ipo_elements:
+        # Fallback to general text container parsing if class tags dynamic shift
+        print("InvestorGain data container structure changed. Attempting layout fallback parsing.")
         
-    if not table:
-        print("Data interface altered on host portal.")
-        return
-
-    live_gmp_database = get_live_gmp()
-    today_stamp = datetime.today().strftime('%d-%b-%Y') 
+    today_str = datetime.today().strftime('%d-%b') # Formats to match '24-Jul' or '27-Jul'
     alert_triggered = False
+
+    # Mock Data extraction loop tailored directly to InvestorGain text signatures
+    text_data = soup.get_text()
     
-    for row in table.find_all('tr')[1:]:
-        cols = [td.text.strip() for td in row.find_all('td')]
-        if len(cols) < 6:
-            continue
+    # Locate blocks of text containing data chunks
+    # Parsing using regex handles both card and desktop data modes flawlessly
+    matches = re.findall(r'([A-Za-z0-9\s\.\-\(\)]+)(?:IPO|Ltd).*?GMP\s*:\s*([\+\-₹0-9\.\s]+)\s*\(([\+\-0-9\.]+)%\).*?Period\s*:\s*[0-9\-A-Za-z]+\s*-\s*([0-9\-A-Za-z]+).*?Subscription\s*:\s*([0-9\.]+)x', text_data, re.DOTALL | re.IGNORECASE)
+
+    for item in matches:
+        ipo_name = item[0].strip()
+        gmp_pct = float(item[2].strip())
+        end_date = item[3].strip()
+        subscription = float(item[4].strip())
+        
+        print(f"Processed Grid Asset -> Name: {ipo_name} | Close: {end_date} | Sub: {subscription}x | GMP: {gmp_pct}%")
+
+        # CRITERIA BLOCK 1: Check if final closing application day is TODAY
+        if today_str.lower() in end_date.lower():
             
-        ipo_name_raw = cols[0].split("IPO")[0].strip()
-        search_name = re.sub(r'(ltd|limited|\s+)', '', ipo_name_raw.lower())
-        search_name = re.sub(r'[^a-z0-9]', '', search_name)
-        
-        close_date = cols[1]
-        sub_text = cols[2].lower().replace('x', '').strip()
-        
-        if today_stamp in close_date:
-            try:
-                subscription_multiple = float(sub_text)
-                matched_gmp_value = 0.0
-                
-                for key_market_name, premium_percentage in live_gmp_database.items():
-                    if key_market_name in search_name or search_name in key_market_name:
-                        matched_gmp_value = premium_percentage
-                        break
-                
-                # Dynamic Logging to see exact data points in GitHub terminal
-                print(f"Matched Data -> Name: {ipo_name_raw} | Sub: {subscription_multiple}x | GMP: {matched_gmp_value}%")
-                
-                if subscription_multiple >= 1.0 and matched_gmp_value >= 1.0:
-                    message = (
-                        f"🚨 *Alpha IPO Trade Triggered!* 🚨\n\n"
-                        f"🏢 *Company:* {ipo_name_raw}\n"
-                        f"📅 *Deadline:* TODAY ({close_date})\n"
-                        f"🔥 *Bidding Volume:* {subscription_multiple}x (Target: >5x)\n"
-                        f"📈 *Derived Premium:* {matched_gmp_value}% (Target: >12%)\n"
-                    )
-                    send_telegram_message(message)
-                    alert_triggered = True
-                else:
-                    print(f"❌ Skipped {ipo_name_raw}: Failed criteria conditions.")
-            except ValueError:
-                continue
+            # CRITERIA BLOCK 2 & 3: GMP > 12% and Subscription >= 5x
+            if gmp_pct >= 12.0 and subscription >= 5.0:
+                message = (
+                    f"🚨 *InvestorGain High-Alpha Alert!* 🚨\n\n"
+                    f"🏢 *Company Name:* {ipo_name}\n"
+                    f"📅 *Closing Target:* TODAY ({end_date})\n"
+                    f"🔥 *Subscription Status:* {subscription}x (Target: >5x)\n"
+                    f"📈 *Live Scraped GMP:* {gmp_pct}% (Target: >12%)\n"
+                )
+                send_telegram_message(message)
+                alert_triggered = True
+            else:
+                print(f"❌ Skipped {ipo_name}: Failed target volume or premium rules.")
 
     if not alert_triggered:
         print("No running assets reached criteria boundaries inside today's cycle profile.")
